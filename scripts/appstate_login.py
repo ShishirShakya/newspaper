@@ -1,9 +1,9 @@
 """
 Optional auto-fill for App State Shibboleth login using .env credentials.
 
-If APPSTATE_LOGIN and APPSTATE_PASSWORD are set in .env, the scripts will
-fill the login form when redirected to the App State sign-in page. You may
-still need to complete 2FA manually. Never commit .env.
+Set AUTOMATIC=TRUE in .env to auto-fill the login form with APPSTATE_LOGIN and
+APPSTATE_PASSWORD when the script opens the App State sign-in page. Set
+AUTOMATIC=FALSE to type your credentials manually in the browser. Never commit .env.
 """
 
 import os
@@ -15,12 +15,21 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 
+def _is_automatic_enabled() -> bool:
+    """Return True if .env has AUTOMATIC set to a truthy value (TRUE, 1, YES)."""
+    val = os.getenv("AUTOMATIC", "").strip().upper()
+    return val in ("TRUE", "1", "YES")
+
+
 async def try_auto_fill_appstate(page) -> bool:
     """
-    If the current page is the App State Shibboleth login form and .env has
-    APPSTATE_LOGIN and APPSTATE_PASSWORD, fill the form and click Sign in.
+    If AUTOMATIC is TRUE in .env and the current page is the App State Shibboleth
+    login form, fill the form with APPSTATE_LOGIN and APPSTATE_PASSWORD and click
+    Sign in. If AUTOMATIC is FALSE, do nothing (user types credentials manually).
     Returns True if auto-fill was attempted.
     """
+    if not _is_automatic_enabled():
+        return False
     if "appstate" not in page.url.lower():
         return False
     login = os.getenv("APPSTATE_LOGIN", "").strip()

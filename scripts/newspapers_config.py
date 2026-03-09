@@ -3,9 +3,10 @@
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Go straight to results; skips the search form and avoids form-fill/login redirect issues.
 SEARCH_URL = (
     "https://newscomwc.newspapers.com/search/results/"
-    "?date-end=2026&date-start=1842&keyword=%22Certificate+of+Need%22&region=us-nc"
+    "?date-end=2026&date-start=1960&keyword=%22certificate+of+need%22&region=us-nc&sort=paper-date-asc"
 )
 # NCLIVE proxy for ProQuest Newspapers Library (sign in here for newspaper access)
 LOGIN_URL_NCLIVE_NEWSPAPERS = (

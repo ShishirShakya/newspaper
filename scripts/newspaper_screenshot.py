@@ -9,7 +9,7 @@ Run from project root:
 Or in Cursor: use the prompt in newspapers-prompt.md so the agent uses the
 browser (Playwright MCP) to do the same steps.
 
-1. Opens the Certificate of Need (NC, 1842-2026) search URL
+1. Opens the Certificate of Need (NC, 1960-2026) results URL directly
 2. Waits for the page to load
 3. Takes a full-page screenshot into newspapers_screenshots/
 4. Prints the saved path (or prompts to log in and run again if login wall)
@@ -28,7 +28,7 @@ from newspapers_config import (
     USER_DATA_DIR,
 )
 
-FILENAME = "certificate_of_need_nc_search_1842_2026.png"
+FILENAME = "certificate_of_need_nc_search_1960_2026.png"
 
 
 async def main() -> None:
@@ -49,21 +49,24 @@ async def main() -> None:
                 pass
             await asyncio.sleep(2)
 
-            from newspapers_search_form import fill_and_submit_search_form
-            if await fill_and_submit_search_form(page):
-                await asyncio.sleep(3)
-                try:
-                    await page.wait_for_load_state("networkidle")
-                except Exception:
-                    pass
-                await asyncio.sleep(2)
+            if "newspapers.com" in page.url and "/search/results/" not in page.url:
+                from newspapers_search_form import fill_and_submit_search_form
+                if await fill_and_submit_search_form(page):
+                    await asyncio.sleep(3)
+                    try:
+                        await page.wait_for_load_state("networkidle")
+                    except Exception:
+                        pass
+                    await asyncio.sleep(2)
 
             login_visible = False
-            for text in ("Log in", "Sign in", "Unauthorized Access"):
+            url = page.url.lower()
+            if "signin" in url or "shibb" in url or "unauthorized" in url or "/login" in url:
+                login_visible = True
+            if not login_visible:
                 try:
-                    if await page.get_by_text(text).first.is_visible():
+                    if await page.get_by_text("Unauthorized Access").first.is_visible():
                         login_visible = True
-                        break
                 except Exception:
                     pass
             if login_visible:

@@ -1,5 +1,5 @@
 """
-Screenshot every search result for "Certificate of Need" (NC, 1842-2026) and build a CSV index.
+Screenshot every search result for "Certificate of Need" (NC, 1960-2026) and build a CSV index.
 
 Run from project root:
   uv run python scripts/newspaper_screenshot_all.py
@@ -77,12 +77,15 @@ def _append_csv_row(row: dict) -> None:
 
 
 async def _check_login_required(page) -> bool:
-    for text in ("Log in", "Sign in", "Unauthorized Access"):
-        try:
-            if await page.get_by_text(text).first.is_visible():
-                return True
-        except Exception:
-            pass
+    """True only when we are clearly blocked: Unauthorized Access or on a login/signin URL."""
+    url = page.url.lower()
+    if "signin" in url or "shibb" in url or "unauthorized" in url or "/login" in url:
+        return True
+    try:
+        if await page.get_by_text("Unauthorized Access").first.is_visible():
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -171,14 +174,15 @@ async def main() -> None:
                 pass
             await asyncio.sleep(2)
 
-            from newspapers_search_form import fill_and_submit_search_form
-            if await fill_and_submit_search_form(page):
-                await asyncio.sleep(3)
-                try:
-                    await page.wait_for_load_state("networkidle")
-                except Exception:
-                    pass
-                await asyncio.sleep(2)
+            if "newspapers.com" in page.url and "/search/results/" not in page.url:
+                from newspapers_search_form import fill_and_submit_search_form
+                if await fill_and_submit_search_form(page):
+                    await asyncio.sleep(3)
+                    try:
+                        await page.wait_for_load_state("networkidle")
+                    except Exception:
+                        pass
+                    await asyncio.sleep(2)
 
             if await _check_login_required(page):
                 print(
