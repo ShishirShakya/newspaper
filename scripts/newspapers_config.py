@@ -3,17 +3,17 @@
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# Homepage: scripts go here first, then fill and submit the search form to reach results.
+# Homepage: scripts go here first for initial load and login check, then navigate to SEARCH_URL to reach results.
 HOMEPAGE_URL = "https://newscomwc.newspapers.com/"
-# Seconds to wait for the search form keyword input to be visible (form module uses this * 1000 for Playwright ms).
-FORM_WAIT_TIMEOUT = 15
-# Seconds to wait after returning from login before attempting form fill, so the homepage can render the form.
-POST_LOGIN_HOMEPAGE_WAIT_SECONDS = 8
-# Reference only (e.g. docstrings); scripts do not use this for initial goto (site redirects to homepage).
+# Scripts use this URL to open the results page directly (after login or from homepage).
 SEARCH_URL = (
     "https://newscomwc.newspapers.com/search/results/"
     "?date-end=2026&date-start=1960&keyword=%22certificate+of+need%22&region=us-nc&sort=paper-date-asc"
 )
+# Milliseconds for page.goto timeouts (navigation helper and login flow use this).
+GOTO_TIMEOUT_MS = 30_000
+# Seconds to wait after navigating to the results page before checking URL or collecting links. Increase if results container or "see more" is missing.
+RESULTS_PAGE_WAIT_SECONDS = 3
 # NCLIVE proxy for ProQuest Newspapers Library (sign in here for newspaper access)
 LOGIN_URL_NCLIVE_NEWSPAPERS = (
     "https://newspaperslibrary-proquest-com.proxy006.nclive.org/?accountid=8337"

@@ -58,7 +58,7 @@ Correctness must not depend on: "remembering the rules," undocumented convention
 
 ### 1.4 Shared Logic in One Place
 
-- Reusable logic (e.g. search form filling, browser context creation, login flow) lives in shared modules. Scripts call into them; they do not copy-paste the same logic.
+- Reusable logic (e.g. browser context creation, login flow, navigation to results) lives in shared modules. Scripts call into them; they do not copy-paste the same logic.
 - Constants (URLs, selectors, timeouts) defined once and imported. No duplicate string literals that represent the same concept.
 
 ---

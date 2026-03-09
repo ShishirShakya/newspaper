@@ -1,10 +1,9 @@
 """
 Screenshot every search result for "Certificate of Need" (NC, 1960-2026) and build a CSV index.
 
-Two-phase flow: open the Newspapers.com homepage, then fill and submit the search form
-to reach the results page. Collects all result links by clicking "see more results" until
-no more, then screenshots each link and appends a row to the CSV. No direct navigation
-to the results URL.
+Flow: open the Newspapers.com homepage, optional login, then navigate to the search
+results URL via SEARCH_URL. Collects all result links by clicking "see more results"
+until no more, then screenshots each link and appends a row to the CSV.
 
 Run from project root:
   uv run python scripts/newspaper_screenshot_all.py
@@ -23,11 +22,11 @@ from browser_context import create_persistent_context
 from newspapers_config import (
     ARTICLE_LINK_XPATH,
     CSV_FILENAME,
+    GOTO_TIMEOUT_MS,
     HOMEPAGE_URL,
     MAX_SEE_MORE_CLICKS,
     NEWSPAPERS_BASE_URL,
     OUTPUT_DIR,
-    POST_LOGIN_HOMEPAGE_WAIT_SECONDS,
     RESULTS_CONTAINER_XPATH,
     SCREENSHOT_PREFIX,
     SEE_MORE_BUTTON_TEXT,
@@ -35,7 +34,7 @@ from newspapers_config import (
     USER_DATA_DIR,
 )
 from newspapers_login import check_login_required, run_login_flow_and_continue
-from newspapers_search_form import fill_and_submit_search_form
+from newspapers_navigation import goto_results_page
 
 CSV_PATH = OUTPUT_DIR / CSV_FILENAME
 CSV_COLUMNS = [
@@ -167,7 +166,7 @@ async def main() -> None:
 
         try:
             await asyncio.sleep(2)
-            await page.goto(HOMEPAGE_URL, wait_until="load", timeout=30_000)
+            await page.goto(HOMEPAGE_URL, wait_until="load", timeout=GOTO_TIMEOUT_MS)
             try:
                 await page.wait_for_load_state("networkidle")
             except Exception:
@@ -181,26 +180,8 @@ async def main() -> None:
                 )
                 if not await run_login_flow_and_continue(page):
                     return
-                await asyncio.sleep(POST_LOGIN_HOMEPAGE_WAIT_SECONDS)
 
-            if not await fill_and_submit_search_form(page):
-                print(
-                    "Could not fill the search form; still on homepage. Log in if needed and run again."
-                )
-                await asyncio.sleep(5)
-                return
-
-            await asyncio.sleep(3)
-            try:
-                await page.wait_for_load_state("networkidle")
-            except Exception:
-                pass  # networkidle best-effort; continue without
-            await asyncio.sleep(2)
-
-            if "/search/results/" not in page.url:
-                print(
-                    "Search form did not navigate to results page. Still at: " + page.url
-                )
+            if not await goto_results_page(page):
                 await asyncio.sleep(5)
                 return
 

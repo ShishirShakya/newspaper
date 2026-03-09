@@ -12,7 +12,7 @@ When Playwright MCP is configured, use this prompt so the agent drives the brows
 Use the browser to:
 1. Go to the Newspapers.com homepage (https://newscomwc.newspapers.com/).
 2. If you see a login wall, tell me to log in first in this browser session, then run the same steps again.
-3. Fill and submit the search form: keyword "certificate of need", date 1960-2026, location North Carolina.
+3. Open the search results page (keyword "certificate of need", date 1960-2026, location North Carolina). The Python script uses the direct results URL; in MCP you can navigate to that URL or fill the form.
 4. Wait for the search results page to fully load (search results and map visible).
 5. Take a full-page screenshot and save it to a file in my workspace (e.g. under `newspapers_screenshots`). Use a clear filename like `certificate_of_need_nc_search_1960_2026.png`.
 6. Tell me the exact path where the screenshot was saved.
@@ -28,7 +28,7 @@ uv run playwright install chromium
 uv run python scripts/newspaper_screenshot.py
 ```
 
-The script opens the **homepage** first, then fills and submits the search form to reach the results page (the site does not honor a direct results URL). Search: **"certificate of need"**, **1960–2026**, **North Carolina**. Screenshots go to `newspapers_screenshots/` (e.g. `certificate_of_need_nc_search_1960_2026.png`). To capture **all 591 matches** one by one with a CSV index, run `uv run python scripts/newspaper_screenshot_all.py` (see below). The script uses a **persistent browser profile** (`playwright_browser_data/`): log in once in the script’s browser (same account as in Chrome, or open your institution’s library site in that browser and reach Newspapers.com from there), then run the script again; the session is reused on future runs.
+The script opens the **homepage** first for login check, then navigates to the search results URL (SEARCH_URL). Search: **"certificate of need"**, **1960–2026**, **North Carolina**. Screenshots go to `newspapers_screenshots/` (e.g. `certificate_of_need_nc_search_1960_2026.png`). To capture **all 591 matches** one by one with a CSV index, run `uv run python scripts/newspaper_screenshot_all.py` (see below). The script uses a **persistent browser profile** (`playwright_browser_data/`): log in once in the script’s browser (same account as in Chrome, or open your institution’s library site in that browser and reach Newspapers.com from there), then run the script again; the session is reused on future runs.
 
 ## Notes
 

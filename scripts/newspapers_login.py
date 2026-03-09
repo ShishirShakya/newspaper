@@ -8,12 +8,11 @@ import asyncio
 
 from browser_context import wait_for_enter_or_timeout
 from newspapers_config import (
+    GOTO_TIMEOUT_MS,
     HOMEPAGE_URL,
     LOGIN_URL_NCLIVE_NEWSPAPERS,
     LOGIN_WAIT_SECONDS,
 )
-
-GOTO_TIMEOUT_MS = 30_000
 
 
 async def check_login_required(page) -> bool:
@@ -33,7 +32,7 @@ async def run_login_flow_and_continue(page) -> bool:
     """
     Run the NCLIVE login flow (goto, optional auto-fill, wait for Enter), then navigate
     to the Newspapers.com homepage and re-check login. Return True if the caller can
-    proceed (form fill, etc.); False if still not logged in or on error.
+    proceed (navigate to results, etc.); False if still not logged in or on error.
     """
     await page.goto(LOGIN_URL_NCLIVE_NEWSPAPERS, wait_until="load", timeout=GOTO_TIMEOUT_MS)
     await asyncio.sleep(3)
