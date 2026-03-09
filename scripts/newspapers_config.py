@@ -31,5 +31,7 @@ NEWSPAPERS_BASE_URL = "https://newscomwc.newspapers.com"  # No trailing slash; u
 RESULTS_CONTAINER_XPATH = "//main/div/div/div[3]"  # Holds result cards and "see more" controls.
 ARTICLE_LINK_XPATH = ".//div/div/div[2]/div/a"  # Relative to container; one link per result card.
 SEE_MORE_BUTTON_TEXT = "see more results"  # Text to match pagination control (get_by_text).
-SEE_MORE_WAIT_SECONDS = 3  # Wait after each "see more" click before re-collecting links.
+# Timeout in ms when waiting for the "see more results" button to be visible before each click; increase if the button appears late (e.g. use 5000 on fast networks).
+SEE_MORE_VISIBLE_TIMEOUT_MS = 10_000
+SEE_MORE_WAIT_SECONDS = 3  # Wait after each "see more" click before re-collecting links. Increase if new results load slowly.
 MAX_SEE_MORE_CLICKS = 50  # Safety cap to avoid infinite loop if button never disappears.

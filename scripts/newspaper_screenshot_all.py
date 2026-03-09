@@ -30,6 +30,7 @@ from newspapers_config import (
     RESULTS_CONTAINER_XPATH,
     SCREENSHOT_PREFIX,
     SEE_MORE_BUTTON_TEXT,
+    SEE_MORE_VISIBLE_TIMEOUT_MS,
     SEE_MORE_WAIT_SECONDS,
     USER_DATA_DIR,
 )
@@ -133,6 +134,7 @@ async def _collect_all_result_links(page) -> list[dict]:
     """Collect all result links by repeatedly clicking 'see more results' until no more or max clicks. Returns deduplicated list."""
     seen_hrefs: set[str] = set()
     all_items: list[dict] = []
+    stop_reason = f"reached max see-more clicks ({MAX_SEE_MORE_CLICKS})"
     for _ in range(MAX_SEE_MORE_CLICKS):
         batch = await _get_result_links_on_page(page)
         for item in batch:
@@ -142,13 +144,17 @@ async def _collect_all_result_links(page) -> list[dict]:
                 all_items.append(item)
         try:
             btn = page.get_by_text(SEE_MORE_BUTTON_TEXT, exact=False).first
-            if not await btn.is_visible(timeout=2000):
+            if not await btn.is_visible(timeout=SEE_MORE_VISIBLE_TIMEOUT_MS):
+                stop_reason = "no 'see more' button"
                 break
+            await btn.scroll_into_view_if_needed()
             await btn.click()
         except Exception:
-            # Best-effort: no more button or click failed; continue with what we have.
+            # Best-effort: no more button or click failed; continue with whatever links were collected.
+            stop_reason = "see more button not found or click failed"
             break
         await asyncio.sleep(SEE_MORE_WAIT_SECONDS)
+    print(f"Stopped: {stop_reason}. Collected {len(all_items)} links.")
     return all_items
 
 
@@ -186,7 +192,6 @@ async def main() -> None:
                 return
 
             all_results = await _collect_all_result_links(page)
-            print(f"Found {len(all_results)} result links.")
             if not all_results:
                 print("No result links found. Check selectors or login.")
                 return
