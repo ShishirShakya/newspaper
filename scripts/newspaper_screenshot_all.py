@@ -1,11 +1,15 @@
 """
 Screenshot every search result for "Certificate of Need" (NC, 1960-2026) and build a CSV index.
 
+Two-phase flow: open the Newspapers.com homepage, then fill and submit the search form
+to reach the results page. Collects all result links by clicking "see more results" until
+no more, then screenshots each link and appends a row to the CSV. No direct navigation
+to the results URL.
+
 Run from project root:
   uv run python scripts/newspaper_screenshot_all.py
 
-Uses the same persistent browser profile as newspaper_screenshot.py. Log in first if needed.
-Resumes from existing CSV/screenshots if interrupted (skips already-done match numbers).
+Uses the same persistent browser profile as newspaper_screenshot.py. If login is required, after you sign in and press Enter the script continues in the same run; if the session is still not recognized, it will ask you to run again. Resumes from existing CSV/screenshots if interrupted (skips already-done match numbers).
 """
 
 import asyncio
@@ -15,16 +19,23 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-from browser_context import create_persistent_context, wait_for_enter_or_timeout
+from browser_context import create_persistent_context
 from newspapers_config import (
+    ARTICLE_LINK_XPATH,
     CSV_FILENAME,
-    LOGIN_URL_NCLIVE_NEWSPAPERS,
-    LOGIN_WAIT_SECONDS,
+    HOMEPAGE_URL,
+    MAX_SEE_MORE_CLICKS,
+    NEWSPAPERS_BASE_URL,
     OUTPUT_DIR,
+    POST_LOGIN_HOMEPAGE_WAIT_SECONDS,
+    RESULTS_CONTAINER_XPATH,
     SCREENSHOT_PREFIX,
-    SEARCH_URL,
+    SEE_MORE_BUTTON_TEXT,
+    SEE_MORE_WAIT_SECONDS,
     USER_DATA_DIR,
 )
+from newspapers_login import check_login_required, run_login_flow_and_continue
+from newspapers_search_form import fill_and_submit_search_form
 
 CSV_PATH = OUTPUT_DIR / CSV_FILENAME
 CSV_COLUMNS = [
@@ -38,7 +49,6 @@ CSV_COLUMNS = [
     "screenshot_path",
 ]
 DELAY_BETWEEN_ITEMS = 2.0
-DELAY_BETWEEN_PAGES = 3.0
 
 
 def _sanitize(s: str, max_len: int = 200) -> str:
@@ -76,81 +86,71 @@ def _append_csv_row(row: dict) -> None:
         writer.writerow(row)
 
 
-async def _check_login_required(page) -> bool:
-    """True only when we are clearly blocked: Unauthorized Access or on a login/signin URL."""
-    url = page.url.lower()
-    if "signin" in url or "shibb" in url or "unauthorized" in url or "/login" in url:
-        return True
-    try:
-        if await page.get_by_text("Unauthorized Access").first.is_visible():
-            return True
-    except Exception:
-        pass
-    return False
+def _normalize_result_url(href: str) -> str | None:
+    """Build absolute URL from href using NEWSPAPERS_BASE_URL; return None if not a result link."""
+    if not href or "search" in href or "results" in href:
+        return None
+    href = href.strip()
+    if href.startswith("http"):
+        return href if "newspapers.com" in href else None
+    base = NEWSPAPERS_BASE_URL.rstrip("/")
+    return base + (href if href.startswith("/") else "/" + href)
 
 
 async def _get_result_links_on_page(page) -> list[dict]:
-    """Collect result entries on current search results page. Returns list of {url, title, date, page, location, snippet}."""
+    """Collect result entries on current search results page from the results container. Returns list of {url, ...}."""
     items = []
-    # Result links often go to /image/ or similar viewer URLs; result cards may be in a list or grid
-    locators = [
-        page.locator('a[href*="/image/"]'),
-        page.locator('a[href*="/viewer/"]'),
-        page.locator("[data-search-result] a[href]"),
-        page.locator(".search-result a[href]"),
-        page.locator("article a[href*='newspapers.com']"),
-    ]
-    seen_hrefs = set()
-    for loc in locators:
-        try:
-            count = await loc.count()
-            for i in range(count):
-                node = loc.nth(i)
-                href = await node.get_attribute("href")
-                if not href or href in seen_hrefs:
-                    continue
-                if "newspapers.com" not in href and not href.startswith("/"):
-                    continue
-                if not href.startswith("http"):
-                    href = "https://newscomwc.newspapers.com" + (href if href.startswith("/") else "/" + href)
-                seen_hrefs.add(href)
-                title = _sanitize(await node.locator("..").first.text_content() or "")
-                if len(title) > 300:
-                    title = title[:300] + "..."
-                items.append({
-                    "url": href,
-                    "newspaper_title": "",
-                    "publication_date": "",
-                    "page_number": "",
-                    "location": "",
-                    "snippet": title,
-                })
-            if items:
-                break
-        except Exception:
-            continue
+    seen_hrefs: set[str] = set()
+    try:
+        container = page.locator("xpath=" + RESULTS_CONTAINER_XPATH)
+        links = container.locator("xpath=" + ARTICLE_LINK_XPATH)
+        count = await links.count()
+        for i in range(count):
+            node = links.nth(i)
+            href = await node.get_attribute("href")
+            url = _normalize_result_url(href or "")
+            if not url or url in seen_hrefs:
+                continue
+            seen_hrefs.add(url)
+            try:
+                snippet = _sanitize(await node.locator("..").first.text_content() or "", 500)
+            except Exception:
+                snippet = ""
+            items.append({
+                "url": url,
+                "newspaper_title": "",
+                "publication_date": "",
+                "page_number": "",
+                "location": "",
+                "snippet": snippet,
+            })
+    except Exception:
+        # Container or links not found / timeout; return what we have (caller handles empty list).
+        pass
     return items
 
 
-async def _click_next_page(page) -> bool:
-    """Click Next pagination if present. Returns True if clicked."""
-    for selector in [
-        'button:has-text("Next")',
-        'a:has-text("Next")',
-        '[aria-label="Next page"]',
-        'a[rel="next"]',
-        ".pagination a.next",
-        "a.next",
-    ]:
+async def _collect_all_result_links(page) -> list[dict]:
+    """Collect all result links by repeatedly clicking 'see more results' until no more or max clicks. Returns deduplicated list."""
+    seen_hrefs: set[str] = set()
+    all_items: list[dict] = []
+    for _ in range(MAX_SEE_MORE_CLICKS):
+        batch = await _get_result_links_on_page(page)
+        for item in batch:
+            url = item.get("url") or ""
+            if url and url not in seen_hrefs:
+                seen_hrefs.add(url)
+                all_items.append(item)
         try:
-            btn = page.locator(selector).first
-            if await btn.is_visible():
-                await btn.click()
-                await asyncio.sleep(DELAY_BETWEEN_PAGES)
-                return True
+            btn = page.get_by_text(SEE_MORE_BUTTON_TEXT, exact=False).first
+            if not await btn.is_visible(timeout=2000):
+                break
+            await btn.click()
         except Exception:
-            continue
-    return False
+            # Best-effort: no more button or click failed; continue with what we have.
+            break
+        await asyncio.sleep(SEE_MORE_WAIT_SECONDS)
+    return all_items
 
 
 async def main() -> None:
@@ -167,97 +167,81 @@ async def main() -> None:
 
         try:
             await asyncio.sleep(2)
-            await page.goto(SEARCH_URL, wait_until="load", timeout=30_000)
+            await page.goto(HOMEPAGE_URL, wait_until="load", timeout=30_000)
             try:
                 await page.wait_for_load_state("networkidle")
             except Exception:
-                pass
+                pass  # networkidle best-effort; continue without
             await asyncio.sleep(2)
 
-            if "newspapers.com" in page.url and "/search/results/" not in page.url:
-                from newspapers_search_form import fill_and_submit_search_form
-                if await fill_and_submit_search_form(page):
-                    await asyncio.sleep(3)
-                    try:
-                        await page.wait_for_load_state("networkidle")
-                    except Exception:
-                        pass
-                    await asyncio.sleep(2)
-
-            if await _check_login_required(page):
+            if await check_login_required(page):
                 print(
                     "Login required. Opening NCLIVE ProQuest Newspapers Library.\n"
-                    "Sign in with your credentials, then run this script again."
+                    "Sign in, then press Enter in the terminal to continue."
                 )
-                await page.goto(LOGIN_URL_NCLIVE_NEWSPAPERS, wait_until="load", timeout=30_000)
-                await asyncio.sleep(3)
-                from appstate_login import try_auto_fill_appstate
-                if await try_auto_fill_appstate(page):
-                    print("Filled login from .env; complete 2FA if prompted.")
-                await wait_for_enter_or_timeout(LOGIN_WAIT_SECONDS)
+                if not await run_login_flow_and_continue(page):
+                    return
+                await asyncio.sleep(POST_LOGIN_HOMEPAGE_WAIT_SECONDS)
+
+            if not await fill_and_submit_search_form(page):
+                print(
+                    "Could not fill the search form; still on homepage. Log in if needed and run again."
+                )
+                await asyncio.sleep(5)
+                return
+
+            await asyncio.sleep(3)
+            try:
+                await page.wait_for_load_state("networkidle")
+            except Exception:
+                pass  # networkidle best-effort; continue without
+            await asyncio.sleep(2)
+
+            if "/search/results/" not in page.url:
+                print(
+                    "Search form did not navigate to results page. Still at: " + page.url
+                )
+                await asyncio.sleep(5)
+                return
+
+            all_results = await _collect_all_result_links(page)
+            print(f"Found {len(all_results)} result links.")
+            if not all_results:
+                print("No result links found. Check selectors or login.")
                 return
 
             total_processed = 0
-            page_num = 1
-            while True:
-                results = await _get_result_links_on_page(page)
-                if not results:
-                    # Fallback: try clicking each visible result link one by one by collecting hrefs
-                    all_links = await page.locator('a[href*="newspapers.com"]').evaluate_all(
-                        "nodes => nodes.map(n => ({ href: n.href, text: n.textContent?.slice(0,200) || '' }))"
-                    )
-                    seen = set()
-                    for info in all_links:
-                        href = (info.get("href") or "").strip()
-                        if not href or "results" in href or "search" in href or href in seen:
-                            continue
-                        seen.add(href)
-                        results.append({
-                            "url": href,
-                            "newspaper_title": _sanitize(info.get("text", ""), 300),
-                            "publication_date": "",
-                            "page_number": "",
-                            "location": "",
-                            "snippet": "",
-                        })
-                    results = results[:50]
-
-                for item in results:
-                    global_index += 1
-                    match_number = global_index
-                    if match_number in done:
-                        continue
-                    url = item.get("url") or ""
-                    if not url:
-                        continue
-                    screenshot_name = f"{SCREENSHOT_PREFIX}_{match_number:04d}.png"
-                    screenshot_path = OUTPUT_DIR / screenshot_name
-                    try:
-                        await page.goto(url, wait_until="load", timeout=25_000)
-                        await asyncio.sleep(1.5)
-                        await page.screenshot(path=str(screenshot_path), full_page=True)
-                        row = {
-                            "match_number": match_number,
-                            "url": url,
-                            "newspaper_title": _sanitize(item.get("newspaper_title", "")),
-                            "publication_date": _sanitize(item.get("publication_date", "")),
-                            "page_number": _sanitize(item.get("page_number", "")),
-                            "location": _sanitize(item.get("location", "")),
-                            "snippet": _sanitize(item.get("snippet", ""), 500),
-                            "screenshot_path": str(screenshot_path.resolve()),
-                        }
-                        _append_csv_row(row)
-                        done.add(match_number)
-                        total_processed += 1
-                        print(f"  {total_processed}: match {match_number} -> {screenshot_path.name}")
-                    except Exception as e:
-                        print(f"  Skip match {match_number}: {e}")
-                    await asyncio.sleep(DELAY_BETWEEN_ITEMS)
-
-                has_next = await _click_next_page(page)
-                if not has_next:
-                    break
-                page_num += 1
+            for item in all_results:
+                global_index += 1
+                match_number = global_index
+                if match_number in done:
+                    continue
+                url = item.get("url") or ""
+                if not url:
+                    continue
+                screenshot_name = f"{SCREENSHOT_PREFIX}_{match_number:04d}.png"
+                screenshot_path = OUTPUT_DIR / screenshot_name
+                try:
+                    await page.goto(url, wait_until="load", timeout=25_000)
+                    await asyncio.sleep(1.5)
+                    await page.screenshot(path=str(screenshot_path), full_page=True)
+                    row = {
+                        "match_number": match_number,
+                        "url": url,
+                        "newspaper_title": _sanitize(item.get("newspaper_title", "")),
+                        "publication_date": _sanitize(item.get("publication_date", "")),
+                        "page_number": _sanitize(item.get("page_number", "")),
+                        "location": _sanitize(item.get("location", "")),
+                        "snippet": _sanitize(item.get("snippet", ""), 500),
+                        "screenshot_path": str(screenshot_path.resolve()),
+                    }
+                    _append_csv_row(row)
+                    done.add(match_number)
+                    total_processed += 1
+                    print(f"  {total_processed}: match {match_number} -> {screenshot_path.name}")
+                except Exception as e:
+                    print(f"  Skip match {match_number}: {e}")
+                await asyncio.sleep(DELAY_BETWEEN_ITEMS)
 
             print(f"Done. Total recorded: {len(done)}. CSV: {CSV_PATH.resolve()}")
         finally:

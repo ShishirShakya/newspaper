@@ -3,3 +3,5 @@ playwright_browser_data/
 .env
 __pycache__/
 *.pyc
+.cursor
+notes.txt

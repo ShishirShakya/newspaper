@@ -40,13 +40,13 @@ async def create_persistent_context(playwright, user_data_dir: str):
 async def wait_for_enter_or_timeout(timeout_sec: int) -> None:
     """
     Keep the browser session open until the user presses Enter in the terminal,
-    or until timeout_sec (e.g. 600 = 10 minutes). Use when login/CAPTCHA is required.
+    or until timeout_sec (e.g. 86400 = 24 hours). Use when login/CAPTCHA is required.
     """
     done = asyncio.Event()
     loop = asyncio.get_event_loop()
 
     def wait_enter() -> None:
-        input("Press Enter when you have finished logging in (browser will then close)... ")
+        input("Press Enter when you have finished logging in to continue. ")
         loop.call_soon_threadsafe(done.set)
 
     t = threading.Thread(target=wait_enter, daemon=True)
@@ -54,4 +54,4 @@ async def wait_for_enter_or_timeout(timeout_sec: int) -> None:
     try:
         await asyncio.wait_for(done.wait(), timeout=timeout_sec)
     except asyncio.TimeoutError:
-        print("Login wait timed out after {} minutes.".format(timeout_sec // 60))
+        print("Login wait timed out after {} hours.".format(timeout_sec // 3600))

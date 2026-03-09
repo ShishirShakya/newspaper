@@ -3,23 +3,28 @@ Fill and submit the Newspapers.com World Collection search form when the script
 lands on the search page (e.g. after login) so Keyword, Date, and Location are set.
 """
 
+from newspapers_config import FORM_WAIT_TIMEOUT
+
 SEARCH_KEYWORD = "certificate of need"
 SEARCH_DATE = "1960-2026"
 SEARCH_LOCATION = "North Carolina"
 
 
 async def _try_fill_by_label_placeholder(page) -> bool:
-    """Try filling using label and placeholder selectors."""
+    """Try filling using label and placeholder selectors. Returns False if form not ready or fill/click fails."""
+    form_timeout_ms = FORM_WAIT_TIMEOUT * 1000  # Playwright expects milliseconds.
+    keyword_input = (
+        page.get_by_label("Keyword").or_(
+            page.get_by_placeholder("Add a keyword or name")
+        ).or_(page.locator('input[placeholder*="keyword"]')).or_(
+            page.locator('input[placeholder*="name"]')
+        ).first
+    )
     try:
-        keyword_input = (
-            page.get_by_label("Keyword").or_(
-                page.get_by_placeholder("Add a keyword or name")
-            ).or_(page.locator('input[placeholder*="keyword"]')).or_(
-                page.locator('input[placeholder*="name"]')
-            ).first
-        )
-        if not await keyword_input.is_visible(timeout=2000):
-            return False
+        await keyword_input.wait_for(state="visible", timeout=form_timeout_ms)
+    except Exception:
+        return False
+    try:
         await keyword_input.fill(SEARCH_KEYWORD)
 
         date_input = (
@@ -48,6 +53,7 @@ async def _try_fill_by_label_placeholder(page) -> bool:
         await search_btn.click()
         return True
     except Exception:
+        # Best-effort fill/click; return False so caller can print a clear message and exit.
         return False
 
 
