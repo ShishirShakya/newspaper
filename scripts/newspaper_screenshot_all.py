@@ -29,6 +29,7 @@ from newspapers_config import (
     OUTPUT_DIR,
     RESULTS_CONTAINER_XPATH,
     SCREENSHOT_PREFIX,
+    SEE_MORE_AFTER_SCROLL_WAIT_SECONDS,
     SEE_MORE_BUTTON_TEXT,
     SEE_MORE_VISIBLE_TIMEOUT_MS,
     SEE_MORE_WAIT_SECONDS,
@@ -142,8 +143,16 @@ async def _collect_all_result_links(page) -> list[dict]:
             if url and url not in seen_hrefs:
                 seen_hrefs.add(url)
                 all_items.append(item)
+        container = page.locator("xpath=" + RESULTS_CONTAINER_XPATH)
         try:
-            btn = page.get_by_text(SEE_MORE_BUTTON_TEXT, exact=False).first
+            await container.scroll_into_view_if_needed()
+            await container.evaluate("el => { el.scrollTop = el.scrollHeight; }")
+        except Exception:
+            # Best-effort: scroll failed (e.g. container not found); continue to button check.
+            pass
+        await asyncio.sleep(SEE_MORE_AFTER_SCROLL_WAIT_SECONDS)
+        try:
+            btn = container.get_by_text(SEE_MORE_BUTTON_TEXT, exact=False).first
             if not await btn.is_visible(timeout=SEE_MORE_VISIBLE_TIMEOUT_MS):
                 stop_reason = "no 'see more' button"
                 break
